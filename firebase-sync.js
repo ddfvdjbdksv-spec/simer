@@ -57,9 +57,17 @@ const CloudSync = (() => {
     let rerenderTimer = null;
     let statusEl = null;
 
+    let isFreshSync = false;
+
     // ── تخزين/قراءة الـ hashes من localStorage (خفيف وسريع) ───
     function loadHashes() {
-        try { hashes = JSON.parse(localStorage.getItem(HASH_STORAGE_KEY)) || {}; }
+        try {
+            const stored = localStorage.getItem(HASH_STORAGE_KEY);
+            if (stored === null) {
+                isFreshSync = true;
+            }
+            hashes = JSON.parse(stored) || {};
+        }
         catch (e) { hashes = {}; }
     }
     function saveHashes() {
@@ -93,8 +101,8 @@ const CloudSync = (() => {
         const map = {
             offline: { bg: '#f59e0b', text: 'غير متصل — العمل محلي', icon: 'fa-wifi-slash' },
             syncing: { bg: '#3b82f6', text: 'جارِ المزامنة...', icon: 'fa-sync fa-spin' },
-            online:  { bg: '#16a34a', text: 'متصل ومتزامن', icon: 'fa-cloud' },
-            error:   { bg: '#dc2626', text: 'تعذّرت المزامنة (سيُعاد المحاولة)', icon: 'fa-exclamation-triangle' },
+            online: { bg: '#16a34a', text: 'متصل ومتزامن', icon: 'fa-cloud' },
+            error: { bg: '#dc2626', text: 'تعذّرت المزامنة (سيُعاد المحاولة)', icon: 'fa-exclamation-triangle' },
         };
         const cfg = map[mode] || map.offline;
         el.style.background = cfg.bg;
@@ -102,28 +110,75 @@ const CloudSync = (() => {
         el.innerHTML = `<i class="fas ${cfg.icon}"></i> ${cfg.text}`;
     }
 
-    function scheduleUIRefresh() {
+    const TABLE_UI_REFRESH_MAP = {
+        students: [
+            () => { if (typeof window.renderStudents === 'function') window.renderStudents(); },
+            () => { if (typeof window.renderGroupStudents === 'function') window.renderGroupStudents(); },
+            () => { if (typeof window.updateDashboardStats === 'function') window.updateDashboardStats(); }
+        ],
+        groups: [
+            () => { if (typeof window.renderGroups === 'function') window.renderGroups(); },
+            () => { if (typeof window.refreshGroupContexts === 'function') window.refreshGroupContexts(); },
+            () => {
+                if (typeof window.currentGrade !== 'undefined' && window.currentGrade) {
+                    if (typeof window.renderPortalGroups === 'function') window.renderPortalGroups(window.currentGrade);
+                    if (typeof window.renderGroupSelection === 'function') window.renderGroupSelection(window.currentGrade);
+                }
+            }
+        ],
+        attendance: [
+            () => { if (typeof window.renderPortalAttendance === 'function') window.renderPortalAttendance(); },
+            () => { if (typeof window.renderSessionTable === 'function') window.renderSessionTable(); },
+            () => { if (typeof window.renderHistoryByDate === 'function') window.renderHistoryByDate(); },
+            () => { if (typeof window.updateDashboardStats === 'function') window.updateDashboardStats(); }
+        ],
+        absenceSessions: [
+            () => { if (typeof window.renderHistoryByDate === 'function') window.renderHistoryByDate(); }
+        ],
+        payments: [
+            () => { if (typeof window.renderFinances === 'function') window.renderFinances(); },
+            () => { if (typeof window.renderReceiptsList === 'function') window.renderReceiptsList(); },
+            () => { if (typeof window.updateDashboardStats === 'function') window.updateDashboardStats(); }
+        ],
+        expenses: [
+            () => { if (typeof window.renderFinances === 'function') window.renderFinances(); },
+            () => { if (typeof window.renderReceiptsList === 'function') window.renderReceiptsList(); },
+            () => { if (typeof window.updateDashboardStats === 'function') window.updateDashboardStats(); }
+        ],
+        dailyTreasuryArchives: [
+            () => { if (typeof window.renderDailyTreasury === 'function') window.renderDailyTreasury(); },
+            () => { if (typeof window.renderDailyTreasuryArchives === 'function') window.renderDailyTreasuryArchives(); }
+        ],
+        exams: [
+            () => { if (typeof window.renderExams === 'function') window.renderExams(); }
+        ],
+        scores: [
+            () => { if (typeof window.renderExams === 'function') window.renderExams(); }
+        ],
+        shifts: [
+            () => { if (typeof window.renderShifts === 'function') window.renderShifts(); }
+        ],
+        staff: [
+            () => { if (typeof window.renderShifts === 'function') window.renderShifts(); },
+            () => { if (typeof window.renderEmployeeManagementList === 'function') window.renderEmployeeManagementList(); }
+        ]
+    };
+
+    let pendingTableRefreshes = new Set();
+    function queueTableUIRefresh(table) {
+        if (table) pendingTableRefreshes.add(table);
         clearTimeout(rerenderTimer);
         rerenderTimer = setTimeout(() => {
-            const simpleFnNames = [
-                'renderStudents', 'renderFinances', 'updateDashboardStats', 'syncUIWithContext',
-                'renderMonthlySubscriptionTables', 'renderSubscriptionTracker', 'renderPortalAttendance',
-                'renderGroups', 'renderGroupStudents', 'refreshGroupContexts'
-            ];
-            simpleFnNames.forEach(fnName => {
-                try { if (typeof window[fnName] === 'function') window[fnName](); } catch (e) {}
-            });
+            const globals = ['syncUIWithContext', 'renderMonthlySubscriptionTables', 'renderSubscriptionTracker'];
+            globals.forEach(fn => { try { if (typeof window[fn] === 'function') window[fn](); } catch (e) { } });
 
-            try {
-                if (typeof window.currentGrade !== 'undefined' && window.currentGrade) {
-                    if (typeof window.renderPortalGroups === 'function') {
-                        window.renderPortalGroups(window.currentGrade);
-                    }
-                    if (typeof window.renderGroupSelection === 'function') {
-                        window.renderGroupSelection(window.currentGrade);
-                    }
+            pendingTableRefreshes.forEach(t => {
+                const fns = TABLE_UI_REFRESH_MAP[t];
+                if (Array.isArray(fns)) {
+                    fns.forEach(fn => { try { fn(); } catch (e) { } });
                 }
-            } catch (e) {}
+            });
+            pendingTableRefreshes.clear();
         }, 700);
     }
 
@@ -253,17 +308,78 @@ const CloudSync = (() => {
         );
     }
 
-    // ── جلب يدوي بزر — يجيب كل حاجة موجودة فعليًا في Firestore ويستبدل بها المحلي ──
+    // ── دمج ذكي للبيانات القادمة من السحابة مع البيانات المحلية ──
+    async function mergeRemoteTable(table, remoteArr) {
+        const localArr = db[table] || [];
+        const tableHashes = hashes[table] || {};
+        const remoteIds = new Set(remoteArr.map(r => String(r.id)));
+        let changed = false;
+
+        // 1. معالجة المستندات القادمة من السحابة
+        for (const remoteRec of remoteArr) {
+            const id = String(remoteRec.id);
+            const idx = localArr.findIndex(r => String(r.id) === id);
+
+            if (idx > -1) {
+                const localRec = localArr[idx];
+                const localHash = hashOf(localRec);
+
+                // إذا كان هناك تعديل محلي لم يُرفع بعد (والجهاز ليس في حالة أول مزامنة)، لا نستبدله
+                if (!isFreshSync && tableHashes[id] !== localHash) {
+                    console.log(`[CloudSync] merge: kept local modified record ${id} in ${table}`);
+                    continue;
+                }
+
+                // تحديث السجل المحلي إذا كان مختلفاً عن السحابة
+                if (localHash !== hashOf(remoteRec)) {
+                    localArr[idx] = remoteRec;
+                    await StorageEngine.save(table, remoteRec).catch(() => { });
+                    tableHashes[id] = hashOf(remoteRec);
+                    changed = true;
+                }
+            } else {
+                // سجل جديد تماماً من السحابة
+                localArr.push(remoteRec);
+                await StorageEngine.save(table, remoteRec).catch(() => { });
+                tableHashes[id] = hashOf(remoteRec);
+                changed = true;
+            }
+        }
+
+        // 2. معالجة السجلات المحلية التي تم حذفها من السحابة
+        for (let i = localArr.length - 1; i >= 0; i--) {
+            const localRec = localArr[i];
+            const id = String(localRec.id);
+
+            if (!remoteIds.has(id)) {
+                // إذا كان السجل قد رُفع سابقاً (موجود في الهواش)، وتم حذفه من السحابة
+                if (tableHashes[id] !== undefined) {
+                    // احذفه محلياً فقط إذا لم يكن قد عُدّل محلياً بعد آخر مزامنة
+                    if (isFreshSync || tableHashes[id] === hashOf(localRec)) {
+                        localArr.splice(i, 1);
+                        await StorageEngine.delete(table, localRec.id).catch(() => { });
+                        delete tableHashes[id];
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        hashes[table] = tableHashes;
+        return changed;
+    }
+
+    // ── جلب يدوي بزر — دمج البيانات المحلية مع بيانات السحابة دون مسح التعديلات المحلية ──
     async function manualPullFromCloud() {
         if (!ready) {
-            alert('⚠️ الاتصال بـ Firebase غير جاهز حاليًا.\nافتح Console (F12) وشوف رسائل [CloudSync] لمعرفة السبب.');
+            alert('⚠️ الاتصال بـ Firebase غير جاهز حالياً.\nافتح Console (F12) وشوف رسائل [CloudSync] لمعرفة السبب.');
             return;
         }
-        if (!confirm('سيتم استبدال البيانات المحلية الحالية بكل ما هو موجود على السحابة الآن.\nهل أنت متأكد؟')) return;
+        if (!confirm('سيتم دمج البيانات المحلية مع السحابة (تنزيل الجديد وتحديث القديم).\nهل أنت متأكد؟')) return;
 
         const btn = document.getElementById('manual-pull-btn');
         const originalHTML = btn ? btn.innerHTML : '';
-        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جارِ الجلب...'; }
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جارِ الدمج...'; }
 
         setStatus('syncing');
         applyingRemote = true;
@@ -271,46 +387,54 @@ const CloudSync = (() => {
         try {
             for (const table of SYNC_TABLES) {
                 const snap = await fsDB.collection(table).get({ source: 'server' });
-                report[table] = snap.size;
-                const arr = [];
+                const remoteArr = [];
                 snap.forEach(doc => {
                     const rawId = doc.id;
                     const numericId = isNaN(Number(rawId)) ? rawId : Number(rawId);
                     const data = { ...doc.data(), id: numericId };
                     delete data._syncedAt;
-                    arr.push(data);
+                    remoteArr.push(data);
                 });
-                db[table] = arr;
-                await StorageEngine.save(table, arr).catch(() => {});
-                hashes[table] = {};
-                arr.forEach(r => { hashes[table][String(r.id)] = hashOf(r); });
+
+                const changed = await mergeRemoteTable(table, remoteArr);
+                report[table] = remoteArr.length + (changed ? ' (تم التحديث/الدمج)' : ' (متطابقة)');
             }
 
             const settingsDoc = await fsDB.collection('meta').doc('settings').get({ source: 'server' });
-            report['الإعدادات'] = settingsDoc.exists ? 'موجودة' : 'غير موجودة';
             if (settingsDoc.exists) {
-                const data = { ...settingsDoc.data() };
-                delete data._syncedAt;
-                db._settings = { ...db._settings, ...data };
-                localStorage.setItem('edu_master_settings', JSON.stringify(db._settings));
-                hashes.__settings = hashOf(db._settings);
+                const remoteSettings = { ...settingsDoc.data() };
+                delete remoteSettings._syncedAt;
+
+                const localHash = hashOf(db._settings);
+                if (isFreshSync || hashes.__settings === localHash) {
+                    db._settings = { ...db._settings, ...remoteSettings };
+                    localStorage.setItem('edu_master_settings', JSON.stringify(db._settings));
+                    hashes.__settings = hashOf(db._settings);
+                    report['الإعدادات'] = 'تم التحديث';
+                } else {
+                    report['الإعدادات'] = 'تم الاحتفاظ بالتعديل المحلي';
+                }
+            } else {
+                report['الإعدادات'] = 'لا يوجد إعدادات على السحابة';
             }
             saveHashes();
+            // بعد نجاح أول دمج كامل، تنتهي حالة المزامنة البكر
+            isFreshSync = false;
         } catch (err) {
-            console.error('[CloudSync] ❌ فشل الجلب من السحابة', err);
+            console.error('[CloudSync] ❌ فشل جلب ودمج البيانات', err);
             applyingRemote = false;
             setStatus('error');
             if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
-            alert('❌ فشل جلب البيانات من السحابة:\n' + (err.message || err) + '\n\nافتح Console (F12) لمزيد من التفاصيل.');
+            alert('❌ فشل دمج البيانات من السحابة:\n' + (err.message || err) + '\n\nافتح Console (F12) لمزيد من التفاصيل.');
             return;
         }
         applyingRemote = false;
         setStatus(navigator.onLine ? 'online' : 'offline');
-        scheduleUIRefresh();
+        queueTableUIRefresh(null);
         if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
 
         const lines = Object.entries(report).map(([t, v]) => `• ${t}: ${v}`);
-        alert('✅ انتهى الجلب من السحابة:\n\n' + lines.join('\n'));
+        alert('✅ انتهى الدمج والجلب من السحابة بنجاح:\n\n' + lines.join('\n'));
     }
 
     // يُستدعى من نهاية db.save() الأصلية في app.js
@@ -321,7 +445,6 @@ const CloudSync = (() => {
         } else if (!modifiedTable) {
             SYNC_TABLES.forEach(pushTableDiff);
         }
-        // الإعدادات (كلمات المرور/المستخدمون) بتتحفظ مع كل db.save() في الكود الأصلي
         pushSettings();
     }
 
@@ -338,8 +461,17 @@ const CloudSync = (() => {
 
         if (change.type === 'removed') {
             const idx = arr.findIndex(r => String(r.id) === String(numericId));
-            if (idx > -1) arr.splice(idx, 1);
-            StorageEngine.delete(table, numericId).catch(() => {});
+            if (idx > -1) {
+                const localRec = arr[idx];
+                const localHash = hashOf(localRec);
+                const tableHashes = hashes[table] || {};
+                if (!isFreshSync && tableHashes[String(numericId)] !== localHash) {
+                    console.log(`[CloudSync] Prevented remote delete of locally modified record ${numericId} in ${table}`);
+                    return false;
+                }
+                arr.splice(idx, 1);
+            }
+            StorageEngine.delete(table, numericId).catch(() => { });
             if (hashes[table]) delete hashes[table][String(numericId)];
             return true;
         }
@@ -348,8 +480,20 @@ const CloudSync = (() => {
         delete data._syncedAt;
 
         const idx = arr.findIndex(r => String(r.id) === String(numericId));
-        if (idx > -1) arr[idx] = data; else arr.push(data);
-        StorageEngine.save(table, [data]).catch(() => {});
+        if (idx > -1) {
+            const localRec = arr[idx];
+            const localHash = hashOf(localRec);
+            const tableHashes = hashes[table] || {};
+            if (!isFreshSync && tableHashes[String(numericId)] !== localHash) {
+                console.log(`[CloudSync] Prevented overwrite of locally modified record ${numericId} in ${table}`);
+                return false;
+            }
+            if (localHash === hashOf(data)) return false;
+            arr[idx] = data;
+        } else {
+            arr.push(data);
+        }
+        StorageEngine.save(table, [data]).catch(() => { });
 
         if (!hashes[table]) hashes[table] = {};
         hashes[table][String(numericId)] = hashOf(data);
@@ -362,15 +506,13 @@ const CloudSync = (() => {
             let changed = false;
             applyingRemote = true;
             snapshot.docChanges().forEach(change => {
-                // لو التغيير ده لسه "pending" (يعني إحنا اللي كتبناه بس لسه
-                // ماوصلش تأكيد من السيرفر) — تجاهله، ده صدى كتابتنا إحنا
                 if (change.doc.metadata.hasPendingWrites) return;
                 if (applyRemoteDocChange(table, change)) changed = true;
             });
             applyingRemote = false;
             if (changed) {
                 saveHashes();
-                scheduleUIRefresh();
+                queueTableUIRefresh(table);
             }
         }, err => {
             console.warn(`[CloudSync] listener error on ${table}`, err);
@@ -392,14 +534,14 @@ const CloudSync = (() => {
             hashes.__settings = hashOf(db._settings);
             saveHashes();
 
-            try { localStorage.setItem('edu_master_settings', JSON.stringify(db._settings)); } catch (e) {}
+            try { localStorage.setItem('edu_master_settings', JSON.stringify(db._settings)); } catch (e) { }
             try {
                 if (db._settings.globalPasswords) {
                     localStorage.setItem('_fallback_passwords', JSON.stringify(db._settings.globalPasswords));
                 }
-            } catch (e) {}
+            } catch (e) { }
 
-            scheduleUIRefresh();
+            queueTableUIRefresh(null);
         }, err => console.warn('[CloudSync] settings listener error', err));
     }
 
@@ -443,7 +585,7 @@ const CloudSync = (() => {
 
             attachAllListeners();
 
-            window.addEventListener('online',  () => { console.log('[CloudSync] رجع النت — إعادة مزامنة'); setStatus('syncing'); pushAllTables(); });
+            window.addEventListener('online', () => { console.log('[CloudSync] رجع النت — إعادة مزامنة'); setStatus('syncing'); pushAllTables(); });
             window.addEventListener('offline', () => setStatus('offline'));
 
             // أول تشغيل: ادفع أي بيانات محلية سابقة (قبل تفعيل المزامنة) لأعلى
@@ -479,5 +621,5 @@ const CloudSync = (() => {
 })();
 
 window.CloudSync = CloudSync;
-window.manualPushToCloud  = () => CloudSync.manualPushToCloud();
+window.manualPushToCloud = () => CloudSync.manualPushToCloud();
 window.manualPullFromCloud = () => CloudSync.manualPullFromCloud();
