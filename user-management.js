@@ -206,6 +206,12 @@ function openEmployeePinPrompt(employeeId, role) {
 // ============================================================
 
 function openEmployeeManagement() {
+    if (typeof RBAC !== 'undefined' && RBAC.isAdmin && !RBAC.isAdmin()) {
+        if (typeof showNotification === 'function') {
+            showNotification('⛔ هذه الخانة مخصّصة للمشرف فقط.', 'error');
+        }
+        return;
+    }
     renderEmployeeManagementList();
     toggleModal('employee-management-modal', true);
 }
