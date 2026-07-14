@@ -3493,7 +3493,7 @@ function renderDailyTreasury() {
                     <div style="font-weight:700;">${student ? student.name : 'طالب مجهول'}</div>
                 </td>
                 <td>${group ? group.name : '---'}</td>
-                <td><span class="status-badge" style="background:var(--bg-light); color:var(--text-main)">${p.category}</span></td>
+                <td><span class="status-badge" style="background:var(--bg-light); color:var(--text-main)">${p.category}</span>${p.collectedBy ? `<br><span style="font-size:.72rem; color:var(--text-muted);"><i class="fas fa-user"></i> ${p.collectedBy}</span>` : ''}</td>
                 <td style="text-align:center; font-weight:800; color:var(--accent); font-size:1.1rem;">${p.amount} ج.م</td>
                 <td style="text-align:center; color:var(--text-muted)">${new Date(p.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</td>
             </tr>
@@ -3813,6 +3813,7 @@ function _archiveDateTreasury(dateStr) {
                     studentName: s ? s.name : 'طالب مجهول',
                     category: p.category,
                     amount: p.amount,
+                    collectedBy: p.collectedBy || null,
                     time: new Date(p.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
                 };
             }),
@@ -3988,7 +3989,7 @@ function viewDailyArchive(archiveId) {
     const paymentsRows = payments.map((p, i) => `
         <tr style="${i % 2 === 0 ? 'background:#fafafa;' : ''}">
             <td style="padding:10px 14px; font-weight:700; color:#1e293b;">${p.studentName}</td>
-            <td style="padding:10px 14px; color:#64748b;">${p.category}</td>
+            <td style="padding:10px 14px; color:#64748b;">${p.category}${p.collectedBy ? `<br><span style="font-size:.72rem; color:#94a3b8;">بواسطة: ${p.collectedBy}</span>` : ''}</td>
             <td style="padding:10px 14px; text-align:center; font-weight:800; color:#10b981;">${p.amount} ج.م</td>
             <td style="padding:10px 14px; text-align:center; color:#94a3b8; font-size:0.82rem;">${p.time || '—'}</td>
         </tr>`).join('');
@@ -7179,7 +7180,7 @@ function _printDailyTreasuryAllGroups() {
             const student = db.students.find(s => s.id === p.studentId);
             return `<tr style="${i % 2 === 0 ? 'background:#fafafa;' : ''}">
                 <td style="padding:8px 12px; font-weight:700;">${student ? student.name : '—'}</td>
-                <td style="padding:8px 12px; color:#64748b;">${p.category}</td>
+                <td style="padding:8px 12px; color:#64748b;">${p.category}${p.collectedBy ? `<br><span style="font-size:.72rem; color:#94a3b8;">بواسطة: ${p.collectedBy}</span>` : ''}</td>
                 <td style="padding:8px 12px; text-align:center; font-weight:800; color:#10b981;">${p.amount} ج.م</td>
                 <td style="padding:8px 12px; text-align:center; color:#94a3b8; font-size:.8rem;">${new Date(p.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</td>
             </tr>`;
@@ -11445,6 +11446,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const passwords = db._settings && db._settings.globalPasswords;
             if (passwords) localStorage.setItem('_fallback_passwords', JSON.stringify(passwords));
+        } catch(e) {}
+
+        // ── عرض قائمة السكرتارية مباشرة على شاشة الدخول الرئيسية ──
+        // (بجانب كلمة مرور المشرف) لو كان هناك حسابات سكرتير مُضافة
+        try {
+            if (typeof renderSplashSecretaryQuickSelect === 'function') renderSplashSecretaryQuickSelect();
         } catch(e) {}
 
         // ── بدء طبقة المزامنة السحابية (Firestore) — لا تمنع تشغيل
