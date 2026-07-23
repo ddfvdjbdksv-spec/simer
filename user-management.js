@@ -41,7 +41,9 @@ const EmployeeAuth = (() => {
         try {
             localStorage.setItem('edu_master_settings', JSON.stringify(db._settings));
         } catch (e) { console.warn('[EmployeeAuth] failed to persist settings', e); }
-        // محاولة أفضل جهد لحفظها أيضاً داخل IndexedDB في الخلفية دون انتظار
+        if (typeof CloudSync !== 'undefined' && CloudSync.isReady && CloudSync.isReady()) {
+            try { CloudSync.onLocalSave(null); } catch (e) {}
+        }
         if (typeof db.save === 'function') {
             db.save('shifts').catch(() => {});
         }
